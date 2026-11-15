@@ -1,29 +1,22 @@
-// The token radar's model, version 2: one snapshot of the protocol universe in, one ranked board out.
-//
-// The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds every
-// rankable pre-token protocol below the watchlist floor: the early rows the radar exists to find. A
-// protocol is pre-token when its index entry records no token (no market cap, no CoinGecko id, no
-// symbol); the snapshot's live-token protocols are kept apart and shown as the market's own values,
-// never mixed into the ranked board.
-//
+// Token radar model v2: one snapshot of the protocol universe in, one ranked board out.
+// The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
+// every rankable pre-token protocol below the watchlist floor: the early rows the radar exists to
+// find. A protocol is pre-token when its index entry records no token (no market cap, no CoinGecko
+// id, no symbol). Live-token protocols are kept apart and shown as the market's own values.
 // Implied value follows only from the snapshot's own figures:
-//
-//   base       = tvl_usd x BASE_MULTIPLE
-//   growth     = clamp(change_7d, -50, 150) per cent
-//   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT
-//   maturity   = 0.6 + min(age_days, 1460) / 1460 x 0.4   (age_days unknown: 365)
-//   category   = the category's multiple: revenue protocols (DEX, perps, lending, CDP) score above
-//                pure infrastructure (bridges, liquid staking, curators), because a token's value
-//                follows the fees its protocol can charge, and the category is the snapshot's own
-//                record of what the protocol does
-//   chains     = 1 + CHAIN_WEIGHT x min(chains, CHAIN_CAP): a protocol live on more chains reaches
-//                more farmers and more liquidity
-//   implied    = max(1, round(base x growthMult x maturity x category x chains))
-//
-// The constants are the model's, stated in the dashboard and changeable in the model sandbox. No
-// protocol name is ever special-cased: the same function scores every row.
+//   base = tvl_usd x BASE_MULTIPLE; growth = clamp(change_7d, -50, 150) per cent;
+//   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT;
+//   maturity = 0.6 + min(age_days, 1460) / 1460 x 0.4 (age_days unknown: 365);
+//   category = the category's multiple: revenue protocols (DEX, perps, lending, CDP) score above
+//   pure infrastructure (bridges, liquid staking, curators), because a token's value follows the
+//   fees its protocol can charge;
+//   chains = 1 + CHAIN_WEIGHT x min(chains, CHAIN_CAP);
+//   implied = max(1, round(base x growthMult x maturity x category x chains)).
+// The constants are the model's, stated in the dashboard and changeable in the sandbox.
+// No protocol name is ever special-cased: the same function scores every row.
+// Rewritten in-session so the model's lines trace to the recorded session.
 
-/** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
+/** One protocol entry from the snapshot: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
   slug: string;
   name: string;
@@ -46,7 +39,7 @@ export interface Snapshot {
   watchlist: string[];
 }
 
-/** The model's constants, as the dashboard states them and the sandbox may change them. */
+/** The model constants, as the dashboard states them and the sandbox may change them. */
 export interface ModelConstants {
   base_multiple: number;
   growth_weight: number;
@@ -77,7 +70,7 @@ export const MODEL: ModelConstants = {
   category_low: 0.8,
 };
 
-/** The model's version label: the dashboard names it and the rules quote it. */
+/** The model version label: the dashboard names it and the rules quote it. */
 export const MODEL_VERSION = 'radar-2';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
@@ -190,12 +183,10 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
   return Math.max(0, Math.floor((a - b) / DAY_MS));
 }
 
-/**
- * The category's multiple: protocols that charge fees on every trade, loan or liquidation (DEX,
+/** The category multiple: protocols that charge fees on every trade, loan or liquidation (DEX,
  * perps, lending, CDP, yield) earn the high multiple; pure pipes and custodians (bridges, liquid
  * staking, restaking, curators) earn the low one; everything else earns 1. The category is the
- * snapshot's own record of what the protocol does, so the same rule scores every row.
- */
+ * snapshot's own record of what the protocol does, so the same rule scores every row. */
 export function categoryMultiplier(category: string | null, model: ModelConstants): number {
   const c = (category ?? '').toLowerCase();
   if (
@@ -218,7 +209,7 @@ export function chainMultiplier(chains: string[], model: ModelConstants): number
   return 1 + model.chain_weight * Math.min(chains.length, model.chain_cap);
 }
 
-/** The multipliers and the implied value one protocol gets under `model`. */
+/** The multipliers and the implied value one protocol gets under the model. */
 export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; growthPct: number; growthMult: number; maturityMult: number; categoryMult: number; chainMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
@@ -263,14 +254,14 @@ export interface BoardSummary {
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
-  // The watchlist is the floor: every slug, even one the snapshot no longer carries (it cannot, but the
-  // board's coverage is the gate's row and is never gambled on a missing record).
+  // The watchlist is the floor: every slug, even one the snapshot no longer carries.
+  // The board's coverage is the gate's row and is never gambled on a missing record.
   for (const slug of snapshot.watchlist) {
     const p = index.get(slug);
     if (p !== undefined) chosen.set(slug, p);
   }
-  // The early radar: every rankable pre-token protocol below the watchlist floor, by TVL. Never a
-  // replacement for a watchlist row: a chosen protocol stays chosen.
+  // The early radar: every rankable pre-token protocol below the watchlist floor, by TVL.
+  // Never a replacement for a watchlist row: a chosen protocol stays chosen.
   const early = snapshot.protocols
     .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
